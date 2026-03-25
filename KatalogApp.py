@@ -322,11 +322,22 @@ with tab_admin:
 
         st.dataframe(disp_df.style.apply(style_rows, axis=1), use_container_width=True, hide_index=True)
 
-        # --- 3. OFFENE ANFRAGEN ---
+        # --- 3. OFFENE ANFRAGEN (Optimiert mit Klarnamen) ---
         st.divider()
         st.subheader("🔔 Offene Bestellanfragen")
         conn = get_connection()
-        offene_req = pd.read_sql("SELECT * FROM requests WHERE status = 'offen'", conn)
+        
+        # Diese SQL-Abfrage holt sich den Namen aus der Hardware- ODER Service-Tabelle
+        query = """
+            SELECT 
+                r.*, 
+                COALESCE(i.typ, s.name, 'Unbekanntes Objekt') as objekt_name
+            FROM requests r
+            LEFT JOIN inventory i ON r.referenz_id = i.id AND r.typ = 'asset'
+            LEFT JOIN services s ON r.referenz_id = s.id AND r.typ = 'service'
+            WHERE r.status = 'offen'
+        """
+        offene_req = pd.read_sql(query, conn)
         conn.close()
         
         if offene_req.empty:
@@ -334,12 +345,16 @@ with tab_admin:
         else:
             for _, r_row in offene_req.iterrows():
                 with st.container(border=True):
-                    col_info, col_action = st.columns([3, 1])
+                    col_info, col_btn1, col_btn2, col_btn3 = st.columns([2.5, 1, 1, 1])
+                    
                     with col_info:
                         st.write(f"👤 **{r_row['anfrager']}** ({r_row['abteilung']})")
-                        st.write(f"Bedarf: `{r_row['referenz_id']}` | Typ: {r_row['typ']}")
+                        # Der "Klarname" steht jetzt im Fokus:
+                        st.subheader(f"📦 {r_row['objekt_name']}")
+                        st.caption(f"ID: `{r_row['referenz_id']}` | Typ: {r_row['typ'].upper()}")
                     
-                    with col_action:
+                    with col_btn1:
+                        st.write(" ") # Spacer
                         if st.button("✅ Genehmigen", key=f"app_{r_row['id']}", use_container_width=True):
                             c = get_connection()
                             c.execute("UPDATE requests SET status = 'genehmigt' WHERE id = ?", (r_row['id'],))
@@ -347,13 +362,26 @@ with tab_admin:
                                 c.execute("""UPDATE inventory SET status = 'In Benutzung', besitzer = ?, last_update = ? 
                                           WHERE id = ?""", (r_row['anfrager'], datetime.now().strftime("%d.%m.%Y"), r_row['referenz_id']))
                             c.commit(); c.close(); st.rerun()
-                        
+                    
+                    with col_btn2:
+                        st.write(" ") # Spacer
                         if r_row['typ'] == 'asset':
                             if st.button("🛒 Nachkauf", key=f"proc_{r_row['id']}", use_container_width=True):
                                 c = get_connection()
                                 c.execute("UPDATE requests SET status = 'Einkauf prüfen' WHERE id = ?", (r_row['id'],))
                                 c.commit(); c.close(); st.rerun()
-
+                    
+                    with col_btn3:
+                        st.write(" ") # Spacer
+                        # Popover für Ablehnung mit Grund
+                        with st.popover("❌ Ablehnen", use_container_width=True):
+                            grund = st.text_input("Grund für Ablehnung", key=f"reason_{r_row['id']}")
+                            if st.button("Bestätigen", key=f"re_conf_{r_row['id']}"):
+                                c = get_connection()
+                                c.execute("UPDATE requests SET status = 'abgelehnt', kommentar = ? WHERE id = ?", 
+                                         (f"Abgelehnt: {grund}", r_row['id']))
+                                c.commit(); c.close(); st.rerun()
+                                
         # --- 4. EXPORT & NEUANLAGE ---
         st.divider()
         col_ex, col_new = st.columns(2)
@@ -419,28 +447,176 @@ with tab_admin:
         else:
             st.info("Noch keine Bestelldaten für das Dashboard vorhanden.")       
 
-# --- TECH TAB (Optimiert) ---
+# --- TECH TAB (Optimierte Version) ---
 with tab_tech:
     if check_password(role="tech"):
-        st.header("🔍 Technisches Dossier")
-        df_tech = load_data()
-        target = st.selectbox("Asset für Details wählen", df_tech['id'].tolist())
-        if target:
-            item = df_tech[df_tech['id'] == target].iloc[0]
-            st.subheader(f"Konfiguration: {item['typ']}")
-            
-            col_spec, col_raw = st.columns(2)
-            with col_spec:
+        st.header("🔧 Technische Bestandsübersicht")
+        
+        # Daten laden
+        df = load_data()
+        
+        # Basis-Spalten aus der DB (klein geschrieben)
+        base_cols = ['id', 'typ', 'abteilung', 'status', 'besitzer', 'seriennummer', 'garantie_bis', 'last_update']
+        
+        # JSON normalisieren und alle möglichen Attribute als Spalten sammeln
+        records = []
+        all_keys = set(base_cols)   # Basis-Spalten immer dabei
+        
+        for _, row in df.iterrows():
+            base = {col: row[col] for col in base_cols}
+            try:
+                details = json.loads(row['details_json'])
+                base.update(details)
+                all_keys.update(details.keys())
+            except:
+                pass
+            records.append(base)
+        
+        # DataFrame mit allen Spalten erstellen (NaN für fehlende Werte)
+        tech_df = pd.DataFrame(records).reindex(columns=sorted(all_keys))
+        
+        # --- STATISTIKEN (übersichtlich) ---
+        st.subheader("📊 Technische Übersicht")
+        col_stat1, col_stat2, col_stat3 = st.columns(3)
+        
+        today = datetime.now()
+        
+        with col_stat1:
+            # Betriebssysteme – suche nach möglichen Spaltennamen
+            os_col = None
+            for col in ['OS', 'Betriebssystem', 'os']:
+                if col in tech_df.columns:
+                    os_col = col
+                    break
+            if os_col:
+                os_counts = tech_df[os_col].dropna().value_counts()
+                if not os_counts.empty:
+                    st.write("**Betriebssysteme**")
+                    st.dataframe(os_counts, use_container_width=True)
+                else:
+                    st.info("Keine Betriebssystem-Daten")
+            else:
+                st.info("Keine OS-Daten erfasst")
+        
+        with col_stat2:
+            # Hardware pro Abteilung
+            dept_counts = tech_df['abteilung'].value_counts()
+            if not dept_counts.empty:
+                st.write("**Hardware pro Abteilung**")
+                st.bar_chart(dept_counts)
+        
+        with col_stat3:
+            # Garantiestatus
+            def garantie_status(date_str):
+                if not date_str or date_str == '-':
+                    return 'Unbekannt'
                 try:
-                    details = json.loads(item['details_json'])
-                    for k, v in details.items():
-                        st.info(f"**{k}**: {v}")
+                    g_date = datetime.strptime(f"01.{date_str}", "%d.%m.%Y")
+                    if g_date < today:
+                        return 'Abgelaufen'
+                    elif (g_date - today).days <= 180:
+                        return '< 6 Monate'
+                    else:
+                        return 'OK'
                 except:
-                    st.write("Keine technischen Details hinterlegt.")
-            with col_raw:
-                st.caption("JSON Rohdaten")
-                st.code(item['details_json'], language="json")
-
+                    return 'Unbekannt'
+            
+            if 'garantie_bis' in tech_df.columns:
+                tech_df['Garantie_Status'] = tech_df['garantie_bis'].apply(garantie_status)
+                status_counts = tech_df['Garantie_Status'].value_counts()
+                st.write("**Garantiestatus**")
+                st.dataframe(status_counts, use_container_width=True)
+        
+        st.divider()
+        
+        # --- FILTER UND SUCHE ---
+        st.subheader("🔍 Filter & Suche")
+        col_f1, col_f2 = st.columns(2)
+        
+        with col_f1:
+            # Betriebssystem-Filter (falls Spalte existiert)
+            os_options = ['Alle']
+            if os_col and os_col in tech_df.columns:
+                os_options += sorted(tech_df[os_col].dropna().unique().tolist())
+            selected_os = st.selectbox("Betriebssystem", os_options)
+        
+        with col_f2:
+            # Abteilungs-Filter
+            dept_options = ['Alle'] + sorted(tech_df['abteilung'].unique().tolist())
+            selected_dept = st.selectbox("Abteilung", dept_options)
+        
+        # Globale Suche
+        search = st.text_input("🔎 Globale Suche (ID, Modell, Seriennummer, ...)")
+        
+        # Filter anwenden (mit Prüfung auf Existenz der Spalten)
+        filtered_df = tech_df.copy()
+        if selected_os != 'Alle' and os_col and os_col in filtered_df.columns:
+            filtered_df = filtered_df[filtered_df[os_col] == selected_os]
+        if selected_dept != 'Alle':
+            filtered_df = filtered_df[filtered_df['abteilung'] == selected_dept]
+        if search:
+            mask = filtered_df.astype(str).apply(lambda x: x.str.contains(search, case=False)).any(axis=1)
+            filtered_df = filtered_df[mask]
+        
+        st.write(f"**Angezeigte Assets:** {len(filtered_df)}")
+        
+        # --- TABELLE ANZEIGEN ---
+        st.dataframe(filtered_df, use_container_width=True)
+        
+        # --- EXPORT (CSV) ---
+        if not filtered_df.empty:
+            csv = filtered_df.to_csv(index=False, sep=';').encode('utf-8-sig')
+            st.download_button("📥 Gefilterte Daten als CSV", data=csv, file_name="technische_uebersicht.csv", mime="text/csv")
+        
+        st.divider()
+        
+        # --- BEARBEITUNG DER TECHNISCHEN DETAILS (formularbasiert) ---
+        st.subheader("✏️ Technische Details bearbeiten")
+        asset_id = st.selectbox("Asset auswählen", df['id'].tolist())
+        asset_row = df[df['id'] == asset_id].iloc[0]
+        
+        # Aktuelle Details als JSON laden
+        try:
+            current_details = json.loads(asset_row['details_json'])
+        except:
+            current_details = {}
+        
+        # Formular zum Bearbeiten der Details
+        with st.form(key="edit_details_form"):
+            st.write(f"**{asset_row['typ']}** (ID: {asset_id})")
+            new_details = {}
+            
+            # Bestehende Felder anzeigen und editieren
+            if current_details:
+                st.write("Vorhandene Attribute:")
+                cols = st.columns(2)
+                for i, (key, value) in enumerate(current_details.items()):
+                    with cols[i % 2]:
+                        new_value = st.text_input(key, value, key=f"edit_{key}_{asset_id}")
+                        new_details[key] = new_value
+            else:
+                st.info("Keine technischen Details hinterlegt.")
+            
+            # Möglichkeit, neue Attribute hinzuzufügen
+            col_new1, col_new2 = st.columns(2)
+            with col_new1:
+                new_key = st.text_input("Neues Attribut (Key)")
+            with col_new2:
+                new_val = st.text_input("Wert für neues Attribut")
+            if new_key and new_val:
+                new_details[new_key] = new_val
+            
+            submitted = st.form_submit_button("Speichern")
+        
+        if submitted:
+            updated_json = json.dumps(new_details, ensure_ascii=False)
+            conn = get_connection()
+            conn.execute("UPDATE inventory SET details_json = ? WHERE id = ?", (updated_json, asset_id))
+            conn.commit()
+            conn.close()
+            st.success("Technische Details aktualisiert!")
+            st.rerun()
+        
 # --- NEUER TAB: EINKAUF (Finale Version mit Historie & Fallback) ---
 with tab_procure:
     if check_password(role="procure"): 
@@ -537,22 +713,7 @@ with tab_procure:
             else:
                 st.caption("Noch keine Bestellungen abgeschlossen.")
         
-        #--- NEU: HISTORIE DER BESTELLUNGEN ---
-        st.divider()
-        with st.expander("📜 Letzte abgeschlossene Bestellungen"):
-            conn = get_connection()
-            completed_df = pd.read_sql("""
-                SELECT erstellt_am, anfrager, referenz_id, preis, kommentar 
-                FROM requests 
-                WHERE status = 'In Bestellung' 
-                ORDER BY id DESC LIMIT 10
-            """, conn)
-            conn.close()
-            
-            if not completed_df.empty:
-                st.dataframe(completed_df, use_container_width=True, hide_index=True)
-            else:
-                st.caption("Noch keine Bestellungen abgeschlossen.")
+
 
 # Hilfreiche Info für Tester in der Sidebar
 with st.sidebar:
