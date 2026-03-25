@@ -141,7 +141,7 @@ init_db() #Datenbank initialisieren (Tabellen erstellen, falls nicht vorhanden)
 init_sample_data()   # Beispieldaten für Services
 init_inventory_data() # NEU: Hier muss der Aufruf hin, damit die Hardware-Assets geladen werden
 
-st.title("🛡️ The Core – IT Service Hub")
+st.title("🛡️ BlueMarlin-IT-Professionals – IT Service Hub")
 st.caption("Verbindung von Business-Service-Katalog und technischer CMDB")
 
 # Tabs für die Trennung der Welten
