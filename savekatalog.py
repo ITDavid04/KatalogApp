@@ -101,48 +101,40 @@ def init_sample_data(): # Funktion, um Beispieldaten für Services einzufügen, 
     conn.close()
 
 def init_inventory_data():
-    """Fügt realistische Demo-Assets inklusive technischer Deep-Tech-Daten ein."""
     conn = get_connection()
     c = conn.cursor()
     c.execute("SELECT COUNT(*) FROM inventory")
     if c.fetchone()[0] == 0:
-        # --- TECHNISCHE MUSTER (JSON-Strings) ---
-        tech_server = '{"IP": "192.168.10.15", "OS": "Ubuntu 22.04 LTS", "CPU": "2x Xeon Gold", "RAM": "128GB", "Storage": "4TB RAID-10"}'
-        tech_laptop = '{"CPU": "Apple M2 Max", "RAM": "32GB", "Display": "ProRes 120Hz", "MAC": "00:1A:2B:3C:4D:5E"}'
-        tech_standard_pc = '{"CPU": "Intel i7-13700", "RAM": "16GB", "OS": "Windows 11 Pro", "MAC": "A1:B2:C3:D4:E5:F6"}'
-        tech_scanner = '{"Interface": "USB 3.2 / LAN", "DPI": "600", "Driver": "Twain v2.4", "Firmware": "v1.0.8"}'
-        tech_iphone = '{"OS": "iOS 17.4", "Battery": "100%", "Model": "A3102", "MDM": "Enrolled"}'
-        tech_zebra = '{"OS": "Android 13 (AOSP)", "Scanner-Engine": "SE4720", "Wi-Fi": "802.11ax", "IP-Rating": "IP65"}'
-        tech_printer = '{"IP": "192.168.20.50", "Type": "LaserJet", "Toner": "85%", "PageCount": "12450"}'
+        # Technische Details als JSON-Strings
+        tech_srv = '{"IP": "192.168.10.15", "OS": "Ubuntu 22.04", "CPU": "2x Xeon Gold", "RAM": "128GB"}'
+        tech_mac = '{"CPU": "M2 Ultra", "RAM": "64GB", "SSD": "2TB"}'
+        tech_mon = '{"Panel": "IPS", "Resolution": "4K", "Hz": "144"}'
+        tech_zebra = '{"OS": "Android 13", "Scanner": "SE4750", "Battery": "Hot-Swap"}'
 
         sample_assets = [
-            # IT
-            ("HW-IT-001", "Lenovo ThinkPad X1 Carbon", "IT", "Lager", "-", "-", "SN-9921-X1", "01.2027", tech_standard_pc),
-            ("HW-IT-002", "Dell PowerEdge R740 Server", "IT", "In Benutzung", "Admin-Team", "25.03.2026", "SRV-DELL-01", "12.2028", tech_server),
+            # IT Abteilung
+            ("HW-IT-001", "ThinkPad X1 Carbon", "IT", "Lager", "-", "-", "SN-X1-9921", "01.2027", '{"RAM": "16GB"}'),
+            ("HW-IT-002", "Dell PowerEdge R740", "IT", "In Benutzung", "Admin-Team", "25.03.2026", "SRV-DELL-01", "12.2028", tech_srv),
+            ("HW-IT-003", "Cisco Catalyst 9200", "IT", "In Benutzung", "Netzwerk-Süd", "10.02.2026", "CIS-9200-AF", "05.2029", '{"Ports": "48x PoE", "Layer": "3"}'),
             
-            # GRAFIK
-            ("HW-GR-001", "Mac Studio (M2 Ultra)", "Grafik", "Lager", "-", "-", "APPLE-M2-088", "06.2027", tech_laptop),
-            ("HW-GR-002", "Wacom Cintiq Pro 27", "Grafik", "Lager", "-", "-", "WAC-99001", "03.2026", '{"Panel": "IPS", "Resolution": "4K"}'),
-            ("HW-GR-003", "Eizo ColorEdge 4K Monitor", "Grafik", "In Benutzung", "Lisa Kreativ", "10.02.2026", "EZ-112233", "05.2027", '{"Panel": "10-bit IPS", "ColorSpace": "99% AdobeRGB"}'),
-
-            # VERTRIEB
-            ("HW-VT-001", "iPhone 15 Pro 256GB", "Vertrieb", "Lager", "-", "-", "IMEI-334455", "10.2026", tech_iphone),
-            ("HW-VT-002", "Microsoft Surface Laptop 5", "Vertrieb", "Lager", "-", "-", "MS-SURF-552", "08.2026", tech_standard_pc),
-            ("HW-VT-003", "Jabra Evolve2 65 Headset", "Vertrieb", "In Benutzung", "Markus Sales", "01.03.2026", "JB-8877", "None", '{"BT": "5.0", "Battery": "37h"}'),
-
-            # BUCHHALTUNG
-            ("HW-BH-001", "Fujitsu Dokumentenscanner fi-8170", "Buchhaltung", "Lager", "-", "-", "FUJ-SCN-01", "12.2026", tech_scanner),
-            ("HW-BH-002", "HP LaserJet Enterprise", "Buchhaltung", "In Benutzung", "Büro-Zentral", "15.01.2026", "HP-PRNT-99", "01.2028", tech_printer),
-
-            # LOGISTIK
-            ("HW-LG-001", "Zebra TC52 Touch Computer", "Logistik", "Lager", "-", "-", "ZEB-88120", "05.2026", tech_zebra),
-            ("HW-LG-002", "Zebra ZT411 Etikettendrucker", "Logistik", "In Benutzung", "Lager-Halle-1", "20.03.2026", "ZEB-PR-441", "09.2027", tech_printer),
+            # Grafik Abteilung
+            ("HW-GR-001", "Mac Studio (M2)", "Grafik", "Lager", "-", "-", "APPLE-M2-088", "06.2027", tech_mac),
+            ("HW-GR-002", "Eizo ColorEdge 27\"", "Grafik", "Lager", "-", "-", "EIZO-ART-11", "03.2026", tech_mon),
+            ("HW-GR-003", "Wacom Intuos Pro L", "Grafik", "In Benutzung", "Lisa Müller", "01.12.2025", "WAC-7721", "None", '{"Buttons": "8"}'),
             
-            # ALLGEMEIN
-            ("HW-GEN-001", "Logitech MX Master 3 Maus", "Alle", "Lager", "-", "-", "LOGI-992", "None", '{"Type": "Wireless", "Sensor": "Darkfield"}')
+            # Vertrieb / Sales
+            ("HW-VT-001", "iPhone 15 Pro", "Vertrieb", "Lager", "-", "-", "IMEI-334455", "10.2026", '{"MDM": "Active"}'),
+            ("HW-VT-002", "iPad Pro 12.9\"", "Vertrieb", "Lager", "-", "-", "APPLE-PAD-99", "08.2027", '{"Pencil": "Gen 2"}'),
+            ("HW-VT-003", "Poly Voyager Focus 2", "Vertrieb", "Lager", "-", "-", "POLY-HEAD-01", "None", '{"ANC": "Hybrid"}'),
+            
+            # Logistik
+            ("HW-LG-001", "Zebra TC52", "Logistik", "Lager", "-", "-", "ZEB-88120", "05.2026", tech_zebra),
+            ("HW-LG-002", "Zebra ZT411 (Drucker)", "Logistik", "In Benutzung", "Halle 1", "20.01.2026", "PRN-ZEB-01", "12.2025", '{"Type": "Thermal"}'),
+            
+            # Allgemein / Alle
+            ("HW-GEN-001", "Logitech MX Master 3S", "Alle", "Lager", "-", "-", "LOGI-992", "None", '{"DPI": "8000"}'),
+            ("HW-GEN-002", "Jabra Speak 750", "Alle", "Lager", "-", "-", "JAB-SPK-22", "06.2026", '{"BT": "5.0"}')
         ]
-        
-        # Wichtig: Hier jetzt 9 Platzhalter (?) statt 8!
         c.executemany("INSERT INTO inventory VALUES (?,?,?,?,?,?,?,?,?)", sample_assets)
         conn.commit()
     conn.close()
