@@ -16,6 +16,30 @@ def get_connection(): # Funktion, um eine Verbindung zur SQLite-Datenbank herzus
 def init_db(): # Funktion, um die Datenbank zu initialisieren und die benötigten Tabellen zu erstellen
     conn = get_connection() # Verbindung zur Datenbank herstellen
     c = conn.cursor() # Cursor-Objekt für SQL-Befehle
+    # Tabelle für Hardware (erweitert um details_json)
+    c.execute('''CREATE TABLE IF NOT EXISTS inventory (
+                    id TEXT PRIMARY KEY,
+                    typ TEXT,
+                    abteilung TEXT,
+                    status TEXT,
+                    besitzer TEXT,
+                    last_update TEXT,
+                    seriennummer TEXT,
+                    garantie_bis TEXT,
+                    details_json TEXT
+                )''') 
+    # Tabelle für Hardware & Services (erweitert um technische Spezifikationen)
+    c.execute('''CREATE TABLE IF NOT EXISTS inventory (
+                    id TEXT PRIMARY KEY,
+                    typ TEXT,
+                    abteilung TEXT,
+                    status TEXT,
+                    besitzer TEXT,
+                    last_update TEXT,
+                    seriennummer TEXT,
+                    garantie_bis TEXT,
+                    details_json TEXT  -- NEU: Für technische Spezifikationen
+                )''')
     # Tabelle für Hardware & Services (erweitert um Seriennummer, Garantie)
     c.execute('''CREATE TABLE IF NOT EXISTS inventory (
                     id TEXT PRIMARY KEY,
@@ -77,41 +101,51 @@ def init_sample_data(): # Funktion, um Beispieldaten für Services einzufügen, 
     conn.close()
 
 def init_inventory_data():
-    """Fügt realistische Demo-Assets für alle Abteilungen ein."""
+    """Fügt realistische Demo-Assets inklusive technischer Deep-Tech-Daten ein."""
     conn = get_connection()
     c = conn.cursor()
     c.execute("SELECT COUNT(*) FROM inventory")
     if c.fetchone()[0] == 0:
+        # --- TECHNISCHE MUSTER (JSON-Strings) ---
+        tech_server = '{"IP": "192.168.10.15", "OS": "Ubuntu 22.04 LTS", "CPU": "2x Xeon Gold", "RAM": "128GB", "Storage": "4TB RAID-10"}'
+        tech_laptop = '{"CPU": "Apple M2 Max", "RAM": "32GB", "Display": "ProRes 120Hz", "MAC": "00:1A:2B:3C:4D:5E"}'
+        tech_standard_pc = '{"CPU": "Intel i7-13700", "RAM": "16GB", "OS": "Windows 11 Pro", "MAC": "A1:B2:C3:D4:E5:F6"}'
+        tech_scanner = '{"Interface": "USB 3.2 / LAN", "DPI": "600", "Driver": "Twain v2.4", "Firmware": "v1.0.8"}'
+        tech_iphone = '{"OS": "iOS 17.4", "Battery": "100%", "Model": "A3102", "MDM": "Enrolled"}'
+        tech_zebra = '{"OS": "Android 13 (AOSP)", "Scanner-Engine": "SE4720", "Wi-Fi": "802.11ax", "IP-Rating": "IP65"}'
+        tech_printer = '{"IP": "192.168.20.50", "Type": "LaserJet", "Toner": "85%", "PageCount": "12450"}'
+
         sample_assets = [
-            # IT (Infrastruktur & Laptops)
-            ("HW-IT-001", "Lenovo ThinkPad X1 Carbon", "IT", "Lager", "-", "-", "SN-9921-X1", "01.2027"),
-            ("HW-IT-002", "Dell PowerEdge R740 Server", "IT", "In Benutzung", "Admin-Team", "25.03.2026", "SRV-DELL-01", "12.2028"),
+            # IT
+            ("HW-IT-001", "Lenovo ThinkPad X1 Carbon", "IT", "Lager", "-", "-", "SN-9921-X1", "01.2027", tech_standard_pc),
+            ("HW-IT-002", "Dell PowerEdge R740 Server", "IT", "In Benutzung", "Admin-Team", "25.03.2026", "SRV-DELL-01", "12.2028", tech_server),
             
-            # GRAFIK (High-End & Spezial-Hardware)
-            ("HW-GR-001", "Mac Studio (M2 Ultra)", "Grafik", "Lager", "-", "-", "APPLE-M2-088", "06.2027"),
-            ("HW-GR-002", "Wacom Cintiq Pro 27", "Grafik", "Lager", "-", "-", "WAC-99001", "03.2026"),
-            ("HW-GR-003", "Eizo ColorEdge 4K Monitor", "Grafik", "In Benutzung", "Lisa Kreativ", "10.02.2026", "EZ-112233", "05.2027"),
+            # GRAFIK
+            ("HW-GR-001", "Mac Studio (M2 Ultra)", "Grafik", "Lager", "-", "-", "APPLE-M2-088", "06.2027", tech_laptop),
+            ("HW-GR-002", "Wacom Cintiq Pro 27", "Grafik", "Lager", "-", "-", "WAC-99001", "03.2026", '{"Panel": "IPS", "Resolution": "4K"}'),
+            ("HW-GR-003", "Eizo ColorEdge 4K Monitor", "Grafik", "In Benutzung", "Lisa Kreativ", "10.02.2026", "EZ-112233", "05.2027", '{"Panel": "10-bit IPS", "ColorSpace": "99% AdobeRGB"}'),
 
-            # VERTRIEB (Mobil & Kommunikation)
-            ("HW-VT-001", "iPhone 15 Pro 256GB", "Vertrieb", "Lager", "-", "-", "IMEI-334455", "10.2026"),
-            ("HW-VT-002", "Microsoft Surface Laptop 5", "Vertrieb", "Lager", "-", "-", "MS-SURF-552", "08.2026"),
-            ("HW-VT-003", "Jabra Evolve2 65 Headset", "Vertrieb", "In Benutzung", "Markus Sales", "01.03.2026", "JB-8877", "None"),
+            # VERTRIEB
+            ("HW-VT-001", "iPhone 15 Pro 256GB", "Vertrieb", "Lager", "-", "-", "IMEI-334455", "10.2026", tech_iphone),
+            ("HW-VT-002", "Microsoft Surface Laptop 5", "Vertrieb", "Lager", "-", "-", "MS-SURF-552", "08.2026", tech_standard_pc),
+            ("HW-VT-003", "Jabra Evolve2 65 Headset", "Vertrieb", "In Benutzung", "Markus Sales", "01.03.2026", "JB-8877", "None", '{"BT": "5.0", "Battery": "37h"}'),
 
-            # BUCHHALTUNG (Sicherheit & Dokumente)
-            ("HW-BH-001", "Fujitsu Dokumentenscanner fi-8170", "Buchhaltung", "Lager", "-", "-", "FUJ-SCN-01", "12.2026"),
-            ("HW-BH-002", "HP LaserJet Enterprise (verschlüsselt)", "Buchhaltung", "In Benutzung", "Büro-Zentral", "15.01.2026", "HP-PRNT-99", "01.2028"),
+            # BUCHHALTUNG
+            ("HW-BH-001", "Fujitsu Dokumentenscanner fi-8170", "Buchhaltung", "Lager", "-", "-", "FUJ-SCN-01", "12.2026", tech_scanner),
+            ("HW-BH-002", "HP LaserJet Enterprise", "Buchhaltung", "In Benutzung", "Büro-Zentral", "15.01.2026", "HP-PRNT-99", "01.2028", tech_printer),
 
-            # LOGISTIK (Robuste Hardware)
-            ("HW-LG-001", "Zebra TC52 Touch Computer", "Logistik", "Lager", "-", "-", "ZEB-88120", "05.2026"),
-            ("HW-LG-002", "Zebra ZT411 Etikettendrucker", "Logistik", "In Benutzung", "Lager-Halle-1", "20.03.2026", "ZEB-PR-441", "09.2027"),
+            # LOGISTIK
+            ("HW-LG-001", "Zebra TC52 Touch Computer", "Logistik", "Lager", "-", "-", "ZEB-88120", "05.2026", tech_zebra),
+            ("HW-LG-002", "Zebra ZT411 Etikettendrucker", "Logistik", "In Benutzung", "Lager-Halle-1", "20.03.2026", "ZEB-PR-441", "09.2027", tech_printer),
             
             # ALLGEMEIN
-            ("HW-GEN-001", "Logitech MX Master 3 Maus", "Alle", "Lager", "-", "-", "LOGI-992", "None")
+            ("HW-GEN-001", "Logitech MX Master 3 Maus", "Alle", "Lager", "-", "-", "LOGI-992", "None", '{"Type": "Wireless", "Sensor": "Darkfield"}')
         ]
-        c.executemany("INSERT INTO inventory VALUES (?,?,?,?,?,?,?,?)", sample_assets)
+        
+        # Wichtig: Hier jetzt 9 Platzhalter (?) statt 8!
+        c.executemany("INSERT INTO inventory VALUES (?,?,?,?,?,?,?,?,?)", sample_assets)
         conn.commit()
     conn.close()
-
 # Nicht vergessen, die Funktion oben bei den Initialisierungen aufzurufen:
 # init_db()
 # init_sample_data()
