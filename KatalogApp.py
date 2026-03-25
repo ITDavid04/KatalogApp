@@ -1,22 +1,23 @@
-import streamlit as st #für die Web-App-Entwicklung
-import pandas as pd #für Datenmanipulation und Anzeige
-import sqlite3 #für persistente Datenbank
-import hmac #für sichere Passwortprüfung
-from datetime import datetime #für Zeitstempel bei Anfragen und Updates
+import streamlit as st
+import pandas as pd
+import sqlite3
+import hmac
+import json # Zentraler Import für alle Funktionen
+from datetime import datetime
 
 # --- CONFIG & STYLING ---
-st.set_page_config(page_title="The Core - IT Service Hub", layout="wide") # Seiteneinstellungen: Titel und Layout
+st.set_page_config(page_title="The Core - IT Service Hub", layout="wide")
 
-# --- 1. DATENBANK LOGIK (PERSISTENTE CMDB) ---
-DB_FILE = "it_inventory_final.db" # Dateiname für die SQLite-Datenbank, die die CMDB und Anfragen speichert
+# --- 1. DATENBANK LOGIK ---
+DB_FILE = "it_inventory_final.db"
 
-def get_connection(): # Funktion, um eine Verbindung zur SQLite-Datenbank herzustellen
-    return sqlite3.connect(DB_FILE) # Rückgabe eines Verbindungsobjekts
+def get_connection():
+    return sqlite3.connect(DB_FILE)
 
-def init_db(): # Funktion, um die Datenbank zu initialisieren und die benötigten Tabellen zu erstellen
-    conn = get_connection() # Verbindung zur Datenbank herstellen
-    c = conn.cursor() # Cursor-Objekt für SQL-Befehle
-    # Tabelle für Hardware (erweitert um details_json)
+def init_db():
+    conn = get_connection()
+    c = conn.cursor()
+    # Finale Tabellenstruktur mit 9 Spalten
     c.execute('''CREATE TABLE IF NOT EXISTS inventory (
                     id TEXT PRIMARY KEY,
                     typ TEXT,
@@ -26,48 +27,23 @@ def init_db(): # Funktion, um die Datenbank zu initialisieren und die benötigte
                     last_update TEXT,
                     seriennummer TEXT,
                     garantie_bis TEXT,
-                    details_json TEXT
-                )''') 
-    # Tabelle für Hardware & Services (erweitert um technische Spezifikationen)
-    c.execute('''CREATE TABLE IF NOT EXISTS inventory (
-                    id TEXT PRIMARY KEY,
-                    typ TEXT,
-                    abteilung TEXT,
-                    status TEXT,
-                    besitzer TEXT,
-                    last_update TEXT,
-                    seriennummer TEXT,
-                    garantie_bis TEXT,
-                    details_json TEXT  -- NEU: Für technische Spezifikationen
+                    details_json TEXT 
                 )''')
-    # Tabelle für Hardware & Services (erweitert um Seriennummer, Garantie)
-    c.execute('''CREATE TABLE IF NOT EXISTS inventory (
-                    id TEXT PRIMARY KEY,
-                    typ TEXT,
-                    abteilung TEXT,
-                    status TEXT,
-                    besitzer TEXT,
-                    last_update TEXT,
-                    seriennummer TEXT,
-                    garantie_bis TEXT
-                )''')
-    # Tabelle für Dienstleistungen
     c.execute('''CREATE TABLE IF NOT EXISTS services (
                     id TEXT PRIMARY KEY,
                     name TEXT,
                     beschreibung TEXT,
                     zielgruppe TEXT,
-                    status TEXT,  -- 'aktiv', 'inaktiv'
+                    status TEXT,
                     standard_dauer TEXT
                 )''')
-    # Tabelle für Anfragen (Tickets)
     c.execute('''CREATE TABLE IF NOT EXISTS requests (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     anfrager TEXT,
                     abteilung TEXT,
-                    typ TEXT,          -- 'asset' oder 'service'
-                    referenz_id TEXT,  -- ID aus inventory oder services
-                    status TEXT,       -- 'offen', 'genehmigt', 'abgelehnt', 'erledigt'
+                    typ TEXT,
+                    referenz_id TEXT,
+                    status TEXT,
                     erstellt_am TEXT,
                     letzte_aenderung TEXT,
                     kommentar TEXT
@@ -75,322 +51,255 @@ def init_db(): # Funktion, um die Datenbank zu initialisieren und die benötigte
     conn.commit()
     conn.close()
 
-def load_data(): # Funktion, um die gesamte inventory-Tabelle als DataFrame zu laden
-    """Lädt die gesamte inventory-Tabelle als DataFrame."""
-    conn = get_connection() # Verbindung zur Datenbank herstellen
+def load_data():
+    conn = get_connection()
     df = pd.read_sql("SELECT * FROM inventory", conn)
     conn.close()
     return df
 
-def init_sample_data(): # Funktion, um Beispieldaten für Services einzufügen, falls die Tabelle leer ist
-    """Fügt Beispieldaten für Services ein, falls Tabelle leer."""
+def init_sample_data():
     conn = get_connection()
     c = conn.cursor()
-    # Prüfen, ob Services vorhanden
     c.execute("SELECT COUNT(*) FROM services")
-    count = c.fetchone()[0]
-    if count == 0:
-        # Ein paar Beispielservices
+    if c.fetchone()[0] == 0:
         sample_services = [
-            ("SVC-001", "Adobe Creative Cloud", "Installation und Lizenzbereitstellung für Adobe CC", "Alle", "aktiv", "2 Tage"),
-            ("SVC-002", "VPN-Zugang", "Einrichtung eines VPN-Zugangs für Homeoffice", "Alle", "aktiv", "1 Tag"),
-            ("SVC-003", "Notebook-Einrichtung", "Erstausstattung eines neuen Notebooks mit Software", "Vertrieb", "aktiv", "3 Tage"),
+            ("SVC-001", "Adobe Creative Cloud", "Installation und Lizenzbereitstellung", "Alle", "aktiv", "2 Tage"),
+            ("SVC-002", "VPN-Zugang", "Einrichtung für Homeoffice", "Alle", "aktiv", "1 Tag"),
+            ("SVC-003", "Notebook-Einrichtung", "Software-Grundkonfiguration", "Vertrieb", "aktiv", "3 Tage"),
         ]
         c.executemany("INSERT INTO services VALUES (?,?,?,?,?,?)", sample_services)
         conn.commit()
     conn.close()
 
 def init_inventory_data():
-    """Fügt realistische Demo-Assets inklusive technischer Deep-Tech-Daten ein."""
     conn = get_connection()
     c = conn.cursor()
     c.execute("SELECT COUNT(*) FROM inventory")
     if c.fetchone()[0] == 0:
-        # --- TECHNISCHE MUSTER (JSON-Strings) ---
-        tech_server = '{"IP": "192.168.10.15", "OS": "Ubuntu 22.04 LTS", "CPU": "2x Xeon Gold", "RAM": "128GB", "Storage": "4TB RAID-10"}'
-        tech_laptop = '{"CPU": "Apple M2 Max", "RAM": "32GB", "Display": "ProRes 120Hz", "MAC": "00:1A:2B:3C:4D:5E"}'
-        tech_standard_pc = '{"CPU": "Intel i7-13700", "RAM": "16GB", "OS": "Windows 11 Pro", "MAC": "A1:B2:C3:D4:E5:F6"}'
-        tech_scanner = '{"Interface": "USB 3.2 / LAN", "DPI": "600", "Driver": "Twain v2.4", "Firmware": "v1.0.8"}'
-        tech_iphone = '{"OS": "iOS 17.4", "Battery": "100%", "Model": "A3102", "MDM": "Enrolled"}'
-        tech_zebra = '{"OS": "Android 13 (AOSP)", "Scanner-Engine": "SE4720", "Wi-Fi": "802.11ax", "IP-Rating": "IP65"}'
-        tech_printer = '{"IP": "192.168.20.50", "Type": "LaserJet", "Toner": "85%", "PageCount": "12450"}'
+        # Technische Muster
+        tech_srv = '{"IP": "192.168.10.15", "OS": "Ubuntu 22.04 LTS", "CPU": "2x Xeon Gold", "RAM": "128GB"}'
+        tech_laptop = '{"CPU": "Apple M2 Max", "RAM": "32GB", "MAC": "00:1A:2B:3C:4D:5E"}'
+        tech_zebra = '{"OS": "Android 13", "Engine": "SE4720", "IP-Rating": "IP65"}'
 
         sample_assets = [
-            # IT
-            ("HW-IT-001", "Lenovo ThinkPad X1 Carbon", "IT", "Lager", "-", "-", "SN-9921-X1", "01.2027", tech_standard_pc),
-            ("HW-IT-002", "Dell PowerEdge R740 Server", "IT", "In Benutzung", "Admin-Team", "25.03.2026", "SRV-DELL-01", "12.2028", tech_server),
-            
-            # GRAFIK
-            ("HW-GR-001", "Mac Studio (M2 Ultra)", "Grafik", "Lager", "-", "-", "APPLE-M2-088", "06.2027", tech_laptop),
-            ("HW-GR-002", "Wacom Cintiq Pro 27", "Grafik", "Lager", "-", "-", "WAC-99001", "03.2026", '{"Panel": "IPS", "Resolution": "4K"}'),
-            ("HW-GR-003", "Eizo ColorEdge 4K Monitor", "Grafik", "In Benutzung", "Lisa Kreativ", "10.02.2026", "EZ-112233", "05.2027", '{"Panel": "10-bit IPS", "ColorSpace": "99% AdobeRGB"}'),
-
-            # VERTRIEB
-            ("HW-VT-001", "iPhone 15 Pro 256GB", "Vertrieb", "Lager", "-", "-", "IMEI-334455", "10.2026", tech_iphone),
-            ("HW-VT-002", "Microsoft Surface Laptop 5", "Vertrieb", "Lager", "-", "-", "MS-SURF-552", "08.2026", tech_standard_pc),
-            ("HW-VT-003", "Jabra Evolve2 65 Headset", "Vertrieb", "In Benutzung", "Markus Sales", "01.03.2026", "JB-8877", "None", '{"BT": "5.0", "Battery": "37h"}'),
-
-            # BUCHHALTUNG
-            ("HW-BH-001", "Fujitsu Dokumentenscanner fi-8170", "Buchhaltung", "Lager", "-", "-", "FUJ-SCN-01", "12.2026", tech_scanner),
-            ("HW-BH-002", "HP LaserJet Enterprise", "Buchhaltung", "In Benutzung", "Büro-Zentral", "15.01.2026", "HP-PRNT-99", "01.2028", tech_printer),
-
-            # LOGISTIK
-            ("HW-LG-001", "Zebra TC52 Touch Computer", "Logistik", "Lager", "-", "-", "ZEB-88120", "05.2026", tech_zebra),
-            ("HW-LG-002", "Zebra ZT411 Etikettendrucker", "Logistik", "In Benutzung", "Lager-Halle-1", "20.03.2026", "ZEB-PR-441", "09.2027", tech_printer),
-            
-            # ALLGEMEIN
-            ("HW-GEN-001", "Logitech MX Master 3 Maus", "Alle", "Lager", "-", "-", "LOGI-992", "None", '{"Type": "Wireless", "Sensor": "Darkfield"}')
+            ("HW-IT-001", "ThinkPad X1 Carbon", "IT", "Lager", "-", "-", "SN-9921-X1", "01.2027", '{"RAM": "16GB"}'),
+            ("HW-IT-002", "Dell PowerEdge R740", "IT", "In Benutzung", "Admin-Team", "25.03.2026", "SRV-DELL-01", "12.2028", tech_srv),
+            ("HW-GR-001", "Mac Studio (M2)", "Grafik", "Lager", "-", "-", "APPLE-M2-088", "06.2027", tech_laptop),
+            ("HW-VT-001", "iPhone 15 Pro", "Vertrieb", "Lager", "-", "-", "IMEI-334455", "10.2026", '{"MDM": "Active"}'),
+            ("HW-LG-001", "Zebra TC52", "Logistik", "Lager", "-", "-", "ZEB-88120", "05.2026", tech_zebra),
+            ("HW-GEN-001", "Logitech MX Master", "Alle", "Lager", "-", "-", "LOGI-992", "None", '{}')
         ]
-        
-        # Wichtig: Hier jetzt 9 Platzhalter (?) statt 8!
         c.executemany("INSERT INTO inventory VALUES (?,?,?,?,?,?,?,?,?)", sample_assets)
         conn.commit()
     conn.close()
-# Nicht vergessen, die Funktion oben bei den Initialisierungen aufzurufen:
-# init_db()
-# init_sample_data()
-# init_inventory_data()  <-- Neu hinzufügen
 
-# --- 2. SECURITY (ADMIN LOCK) ---
+# --- 2. SECURITY ---
 def check_password():
-    """Gibt True zurück, wenn das Passwort korrekt eingegeben wurde."""
+    if st.session_state.get("password_correct"): return True
     def password_entered():
         if hmac.compare_digest(st.session_state["password"], "admin123"):
             st.session_state["password_correct"] = True
             del st.session_state["password"]
-        else:
-            st.session_state["password_correct"] = False
-
-    if st.session_state.get("password_correct"):
-        return True
-
-    st.warning("⚠️ Zugriff verweigert. Bitte Admin-Passwort eingeben.")
-    st.text_input("Passwort (Standard: admin123)", type="password", on_change=password_entered, key="password")
-    if "password_correct" in st.session_state and not st.session_state["password_correct"]:
-        st.error("❌ Falsches Passwort.")
+    st.warning("⚠️ Admin-Sperre aktiv.")
+    st.text_input("Passwort", type="password", on_change=password_entered, key="password")
     return False
 
-# --- 3. APP INITIALISIERUNG ---
-init_db() #Datenbank initialisieren (Tabellen erstellen, falls nicht vorhanden)
-init_sample_data()   # Beispieldaten für Services
-init_inventory_data() # NEU: Hier muss der Aufruf hin, damit die Hardware-Assets geladen werden
+# --- 3. APP START ---
+init_db()
+init_sample_data()
+init_inventory_data()
 
-st.title("🛡️ BlueMarlin-IT-Professionals – IT Service Hub")
-st.caption("Verbindung von Business-Service-Katalog und technischer CMDB")
+st.title("🛡️ BlueMarlin-IT-Profis – Service Hub")
+# Hier sind jetzt alle drei Reiter definiert
+tab_user, tab_admin, tab_tech = st.tabs(["🛒 Service Katalog", "⚙️ IT-Administration", "🛠️ Deep Tech (Techniker)"])
 
-# Tabs für die Trennung der Welten
-tab_user, tab_admin = st.tabs(["🛒 Service Katalog (User)", "⚙️ IT-Administration (CMDB)"])
-
-# --- USER BEREICH (BUSINESS VIEW) ---
-with tab_user:# Sidebar für Benutzerprofil (wie im Original)
-    # Sidebar für Benutzerprofil (wie im Original)
-    st.sidebar.header("👤 Benutzer-Profil")
+# --- USER TAB ---
+with tab_user:
+    st.sidebar.header("👤 Profil")
     u_name = st.sidebar.text_input("Dein Name", "Max Mustermann")
     u_dept = st.sidebar.selectbox("Abteilung", ["Vertrieb", "Grafik", "IT", "Buchhaltung", "Logistik"])
     
-    st.header(f"Hallo {u_name}, was benötigst du heute?")
-
-    # Auswahl: Hardware oder Service?
-    anfrage_typ = st.radio("Art der Anfrage", ["Hardware bestellen", "Dienstleistung anfordern"])
-
-    if anfrage_typ == "Hardware bestellen":
-        df = load_data()
-        # Achtung: Hier muss 'Lager' Status haben; die ursprüngliche Tabelle hatte 'Lager'
+    anfrage_typ = st.radio("Was benötigst du?", ["Hardware", "Service"])
+    df = load_data()
+    
+    if anfrage_typ == "Hardware":
         verfügbar = df[(df['abteilung'].isin([u_dept, "Alle"])) & (df['status'] == "Lager")]
         if verfügbar.empty:
-            st.info("Aktuell keine Hardware für deine Abteilung verfügbar.")
+            st.info("Aktuell keine Hardware im Lager verfügbar.")
         else:
-            st.subheader("Verfügbare Geräte")
             for _, row in verfügbar.iterrows():
                 with st.container(border=True):
-                    st.write(f"**{row['typ']}** (ID: {row['id']})")
-                    if st.button(f"Anfordern: {row['typ']}", key=f"req_{row['id']}"):
+                    st.write(f"💻 **{row['typ']}** (ID: {row['id']})")
+                    if st.button(f"Anfordern: {row['id']}", key=f"req_{row['id']}"):
                         conn = get_connection()
-                        conn.execute("""
-                            INSERT INTO requests (anfrager, abteilung, typ, referenz_id, status, erstellt_am, letzte_aenderung)
-                            VALUES (?, ?, 'asset', ?, 'offen', ?, ?)
-                        """, (u_name, u_dept, row['id'],
-                              datetime.now().strftime("%d.%m.%Y %H:%M"),
-                              datetime.now().strftime("%d.%m.%Y %H:%M")))
-                        conn.commit()
-                        conn.close()
-                        st.toast(f"Anfrage für {row['typ']} wurde gesendet!")
-                        st.rerun()
-    else:
-        # Dienstleistungen anzeigen
-        conn = get_connection()
-        services_df = pd.read_sql("SELECT * FROM services WHERE zielgruppe IN (?, 'Alle') AND status='aktiv'", conn, params=(u_dept,))
-        conn.close()
-        if services_df.empty:
-            st.info("Keine Dienstleistungen für deine Abteilung verfügbar.")
-        else:
-            st.subheader("Dienstleistungen")
-            for _, row in services_df.iterrows():
-                with st.container(border=True):
-                    st.write(f"**{row['name']}**")
-                    st.caption(row['beschreibung'])
-                    if st.button(f"Dienstleistung anfordern: {row['name']}", key=f"req_svc_{row['id']}"):
-                        conn = get_connection()
-                        conn.execute("""
-                            INSERT INTO requests (anfrager, abteilung, typ, referenz_id, status, erstellt_am, letzte_aenderung)
-                            VALUES (?, ?, 'service', ?, 'offen', ?, ?)
-                        """, (u_name, u_dept, row['id'],
-                              datetime.now().strftime("%d.%m.%Y %H:%M"),
-                              datetime.now().strftime("%d.%m.%Y %H:%M")))
-                        conn.commit()
-                        conn.close()
-                        st.toast(f"Anfrage für {row['name']} wurde gesendet!")
-                        st.rerun()
-
-    # Meine offenen Anfragen anzeigen
-    with st.expander("📋 Meine offenen Anfragen"):
-        conn = get_connection()
-        meine_anfragen = pd.read_sql("""
-            SELECT r.*, 
-                   CASE WHEN r.typ='asset' THEN i.typ ELSE s.name END as bezeichnung
-            FROM requests r
-            LEFT JOIN inventory i ON r.typ='asset' AND r.referenz_id=i.id
-            LEFT JOIN services s ON r.typ='service' AND r.referenz_id=s.id
-            WHERE anfrager=?
-            ORDER BY erstellt_am DESC
-        """, conn, params=(u_name,))
-        conn.close()
-        if not meine_anfragen.empty:
-            st.dataframe(meine_anfragen[['bezeichnung', 'status', 'erstellt_am', 'letzte_aenderung']], use_container_width=True)
-        else:
-            st.write("Noch keine Anfragen gestellt.")
-
-# --- ADMIN BEREICH (TECHNICAL VIEW / CMDB) ---
-with tab_admin:
-    st.header("🛠️ IT-Management Konsole")
+                        conn.execute("INSERT INTO requests (anfrager, abteilung, typ, referenz_id, status, erstellt_am) VALUES (?,?,'asset',?,'offen',?)",
+                                     (u_name, u_dept, row['id'], datetime.now().strftime("%d.%m.%Y %H:%M")))
+                        conn.commit(); conn.close(); st.toast("Hardware-Anfrage gesendet!"); st.rerun()
     
-    if check_password():
-        st.success("Admin-Modus aktiv.")
-        
-        # 1. Dashboard Kennzahlen
-        df_admin = load_data()
-        c1, c2, c3 = st.columns(3)
-        c1.metric("Gesamt-Assets", len(df_admin))
-        c2.metric("Im Lager", len(df_admin[df_admin['status'] == "Lager"]))
-        c3.metric("Im Einsatz", len(df_admin[df_admin['status'] == "In Benutzung"]))
-        
-        # 2. Suche & Filter (Power-User Tools)
-        st.divider()
-        st.subheader("Bestand durchsuchen")
-        search_term = st.text_input("Suche nach ID, Typ oder Besitzer...")
-        if search_term:
-            filtered_df = df_admin[
-                df_admin.astype(str).apply(lambda x: x.str.contains(search_term, case=False)).any(axis=1)
-            ]
-        else:
-            filtered_df = df_admin
-        st.dataframe(filtered_df, use_container_width=True)
-        
-        # 3. Anfragen verwalten
-        st.divider()
-        st.subheader("📋 Anfragen verwalten")
+    else:
+        # --- HIER IST DIE ERSETZTE LOGIK FÜR SERVICES ---
         conn = get_connection()
-        offene_anfragen = pd.read_sql("""
-            SELECT r.*, 
-                   CASE WHEN r.typ='asset' THEN i.typ ELSE s.name END as bezeichnung
-            FROM requests r
-            LEFT JOIN inventory i ON r.typ='asset' AND r.referenz_id=i.id
-            LEFT JOIN services s ON r.typ='service' AND r.referenz_id=s.id
-            WHERE r.status='offen'
-            ORDER BY erstellt_am
-        """, conn)
+        # Wir laden nur Services, die für die Abteilung des Users oder 'Alle' gedacht sind
+        services_df = pd.read_sql("SELECT * FROM services WHERE zielgruppe IN (?, 'Alle')", conn, params=(u_dept,))
         conn.close()
-        if offene_anfragen.empty:
-            st.info("Keine offenen Anfragen.")
+        
+        if services_df.empty:
+            st.info("Keine spezifischen Dienstleistungen für deine Abteilung gefunden.")
         else:
-            for idx, row in offene_anfragen.iterrows():
+            for _, s_row in services_df.iterrows():
                 with st.container(border=True):
-                    col1, col2 = st.columns([3, 1])
-                    with col1:
-                        st.write(f"**{row['bezeichnung']}** (Anfrager: {row['anfrager']}, Abt: {row['abteilung']})")
-                        st.caption(f"Eingegangen: {row['erstellt_am']}")
-                    with col2:
-                        col2_1, col2_2 = st.columns(2)
-                        with col2_1:
-                            if st.button("✅ Genehmigen", key=f"approve_{row['id']}"):
-                                conn = get_connection()
-                                conn.execute("UPDATE requests SET status='genehmigt', letzte_aenderung=? WHERE id=?", 
-                                             (datetime.now().strftime("%d.%m.%Y %H:%M"), row['id']))
-                                # Bei Asset: falls Hardware, Status im inventory auf "In Benutzung" setzen
-                                if row['typ'] == 'asset':
-                                    conn.execute("UPDATE inventory SET status='In Benutzung', besitzer=?, last_update=? WHERE id=?", 
-                                                 (row['anfrager'], datetime.now().strftime("%d.%m.%Y %H:%M"), row['referenz_id']))
-                                conn.commit()
-                                conn.close()
-                                st.success(f"Anfrage {row['id']} genehmigt.")
-                                st.rerun()
-                        with col2_2:
-                            if st.button("❌ Ablehnen", key=f"reject_{row['id']}"):
-                                conn = get_connection()
-                                conn.execute("UPDATE requests SET status='abgelehnt', letzte_aenderung=? WHERE id=?", 
-                                             (datetime.now().strftime("%d.%m.%Y %H:%M"), row['id']))
-                                conn.commit()
-                                conn.close()
-                                st.warning(f"Anfrage {row['id']} abgelehnt.")
-                                st.rerun()
+                    st.write(f"🛠️ **{s_row['name']}**")
+                    st.caption(s_row['beschreibung'])
+                    st.write(f"⏱️ Erwartete Dauer: {s_row['standard_dauer']}")
+                    if st.button(f"Service buchen: {s_row['id']}", key=f"svc_{s_row['id']}"):
+                        conn = get_connection()
+                        conn.execute("INSERT INTO requests (anfrager, abteilung, typ, referenz_id, status, erstellt_am) VALUES (?,?,'service',?,'offen',?)",
+                                     (u_name, u_dept, s_row['id'], datetime.now().strftime("%d.%m.%Y %H:%M")))
+                        conn.commit(); conn.close()
+                        st.toast(f"Anfrage für {s_row['name']} ist raus!")
+                        st.rerun()
+    # --- ANFRAGE-HISTORIE FÜR USER ---
+    st.divider()
+    st.subheader("📋 Meine letzten Anfragen")
+    conn = get_connection()
+    # Wir holen uns die Details zu den Anfragen des aktuellen Nutzers
+    history_df = pd.read_sql("""
+        SELECT r.typ, r.referenz_id, r.status, r.erstellt_am 
+        FROM requests r 
+        WHERE r.anfrager = ? 
+        ORDER BY r.erstellt_am DESC LIMIT 5
+    """, conn, params=(u_name,))
+    conn.close()
+
+    if not history_df.empty:
+        # Ein bisschen Styling für die Status-Anzeige
+        def color_status(val):
+            color = 'orange' if val == 'offen' else 'green' if val == 'genehmigt' else 'red'
+            return f'color: {color}; font-weight: bold'
         
-        # --- EXPORT FUNKTION (FINISHER) ---
+        st.table(history_df.style.map(color_status, subset=['status']))
+    else:
+        st.caption("Du hast noch keine Anfragen gestellt.")
+# --- ADMIN TAB ---
+with tab_admin:
+    if check_password():
+        st.header("🛠️ Management Konsole")
+        df_admin = load_data()
+        
+        st.subheader("🚥 Asset Health Check (Garantie)")
+        today = datetime.now()
+        critical_count, warning_count = 0, 0
+        
+        for _, row in df_admin.iterrows():
+            g_date_str = row['garantie_bis']
+            if g_date_str and g_date_str not in ["None", "-", ""]:
+                try:
+                    # Datum parsen (wir hängen .01 an für den ersten des Monats)
+                    g_date = datetime.strptime(f"01.{g_date_str}", "%d.%m.%Y")
+                    # Differenz in Tagen
+                    diff_days = (g_date - today).days
+                    
+                    if diff_days < 0:
+                        critical_count += 1
+                    elif diff_days <= 180: # 6 Monate
+                        warning_count += 1
+                except: continue
+
+        a1, a2, a3 = st.columns(3)
+        a1.error(f"🔴 Kritisch: {critical_count}")
+        a2.warning(f"🟡 Warning: {warning_count}")
+        a3.success(f"🟢 Gesund: {len(df_admin) - critical_count - warning_count}")
+        
+        if critical_count > 0:
+            st.error(f"⚠️ Handlungsbedarf: {critical_count} Garantien abgelaufen!")
+        
         st.divider()
-        st.subheader("📊 Reporting")
-        csv = df_admin.to_csv(index=False).encode('utf-8')
-        st.download_button(
-            label="Gesamtes Inventar als CSV exportieren",
-            data=csv,
-            file_name=f"IT_Inventur_{datetime.now().strftime('%Y-%m-%d')}.csv",
-            mime="text/csv",
-            help="Klicke hier, um die aktuelle CMDB für Excel herunterzuladen."
-        )
         
-        # 4. Bestands-Pflege (Provisioning)
+        # --- SUCHE & FILTER ---
+        c_search, c_filter = st.columns([2, 1])
+        with c_search:
+            search_term = st.text_input("🔍 Suche (ID, Typ, Besitzer...)", "")
+        with c_filter:
+            # Ein einfacher Filter für die Ampel-Logik
+            filter_mode = st.selectbox("Filter", ["Alle anzeigen", "Nur Kritische (Abgelaufen)", "Nur Wartung (Gelb)"])
+
+        # Daten filtern basierend auf Suche
+        display_df = df_admin.copy()
+        if search_term:
+            display_df = display_df[display_df.astype(str).apply(lambda x: x.str.contains(search_term, case=False)).any(axis=1)]
+        
+        # Daten filtern basierend auf Ampel-Status
+        if filter_mode != "Alle anzeigen":
+            # Hier nutzen wir eine kleine Hilfsfunktion für den Filter
+            def check_status(date_str):
+                try:
+                    d = datetime.strptime(f"01.{date_str}", "%d.%m.%Y")
+                    diff = (d - today).days
+                    if filter_mode == "Nur Kritische (Abgelaufen)": return diff < 0
+                    if filter_mode == "Nur Wartung (Gelb)": return 0 <= diff <= 180
+                except: return False
+                return False
+            
+            display_df = display_df[display_df['garantie_bis'].apply(check_status)]
+
+        st.dataframe(display_df, use_container_width=True)
+
+        # --- EXPORT BEREICH (Deine optimierte Version) ---
+        st.divider()
+        if not df_admin.empty:
+            export_df = df_admin.copy()
+            try:
+                processed_tech = []
+                for val in export_df['details_json']:
+                    if isinstance(val, str) and val.strip().startswith('{'):
+                        try: processed_tech.append(json.loads(val))
+                        except: processed_tech.append({})
+                    else: processed_tech.append({})
+                
+                tech_df = pd.json_normalize(processed_tech)
+                tech_df.index = export_df.index
+                final_df = pd.concat([export_df.drop(columns=['details_json']), tech_df], axis=1)
+                
+                csv = final_df.to_csv(index=False, sep=";", encoding='utf-8-sig').encode('utf-8-sig')
+                st.download_button("🚀 Excel-Export (Smart)", data=csv, file_name="IT_Inventur.csv", mime="text/csv")
+            except Exception as e:
+                st.error(f"Export-Fehler: {e}")
+
+        # --- NEUES ASSET (Fix: Jetzt mit 9 Spalten!) ---
         with st.expander("➕ Neues Asset registrieren"):
-            with st.form("new_asset_form"):
+            with st.form("new_asset"):
                 f1, f2, f3 = st.columns(3)
-                nid = f1.text_input("ID (z.B. HW-2026-001)")
-                ntyp = f2.text_input("Geräte-Typ (z.B. Dell XPS 15)")
-                nabt = f3.selectbox("Zielgruppe", ["Alle", "Grafik", "IT", "Vertrieb", "Buchhaltung"])
-                # Zusätzliche Felder für Seriennummer und Garantie
-                seriennummer = st.text_input("Seriennummer (optional)")
-                garantie_bis = st.text_input("Garantie bis (optional, z.B. 12.2027)")
+                nid = f1.text_input("ID (z.B. HW-005)")
+                ntyp = f2.text_input("Modell (z.B. iPhone 15)")
+                nabt = f3.selectbox("Ziel", ["Alle", "IT", "Grafik", "Vertrieb", "Logistik"])
+                
+                f4, f5 = st.columns(2)
+                n_sn = f4.text_input("Seriennummer")
+                n_gar = f5.text_input("Garantie bis (MM.YYYY)", placeholder="12.2026")
                 
                 if st.form_submit_button("In CMDB aufnehmen"):
                     if nid and ntyp:
-                        try:
-                            conn = get_connection()
-                            # Alle 8 Spalten füllen (bei optionalen Feldern leere Strings)
-                            conn.execute("""
-                                INSERT INTO inventory (id, typ, abteilung, status, besitzer, last_update, seriennummer, garantie_bis)
-                                VALUES (?, ?, ?, 'Lager', '-', '-', ?, ?)
-                            """, (nid, ntyp, nabt, seriennummer, garantie_bis))
-                            conn.commit()
-                            conn.close()
-                            st.success("Gerät erfolgreich im System registriert.")
-                            st.rerun()
-                        except sqlite3.IntegrityError:
-                            st.error("Fehler: ID bereits vergeben!")
+                        conn = get_connection()
+                        # Jetzt werden alle 9 Spalten sauber befüllt
+                        conn.execute("INSERT INTO inventory VALUES (?,?,?, 'Lager', '-', '-', ?, ?, '{}')", 
+                                     (nid, ntyp, nabt, n_sn, n_gar))
+                        conn.commit()
+                        conn.close()
+                        st.success(f"Asset {nid} registriert!")
+                        st.rerun()
                     else:
-                        st.warning("Bitte ID und Typ ausfüllen.")
+                        st.error("Bitte ID und Modell angeben.")
 
-        # 5. Daten-Wartung (Optimiert für Demo-Reset)
-        with st.expander("⚠️ System-Wartung"):
-            st.write("Hier kannst du das System für eine neue Demo zurücksetzen.")
-            
-            if st.button("Gesamtes System zurücksetzen (Inventar & Tickets)"):
-                conn = get_connection()
-                # Alle Tabellen leeren
-                conn.execute("DELETE FROM inventory")
-                conn.execute("DELETE FROM requests")
-                conn.execute("DELETE FROM services")
-                conn.commit()
-                conn.close()
-                
-                # Funktionen sofort neu aufrufen, um Demo-Daten frisch zu laden
-                init_sample_data()
-                init_inventory_data()
-                
-                st.success("✅ System erfolgreich zurückgesetzt und Demo-Daten neu geladen!")
-                st.rerun()
+# --- TECH TAB ---
+with tab_tech:
+    if check_password():
+        st.header("🔍 Technisches Dossier")
+        df_tech = load_data()
+        target = st.selectbox("Asset wählen", df_tech['id'].tolist())
+        if target:
+            item = df_tech[df_tech['id'] == target].iloc[0]
+            st.subheader(f"Konfiguration für {item['typ']}")
+            try:
+                d = json.loads(item['details_json'])
+                for k, v in d.items(): st.info(f"**{k}**: {v}")
+            except: st.write("Keine technischen Details hinterlegt.")
