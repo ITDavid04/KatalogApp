@@ -76,6 +76,47 @@ def init_sample_data(): # Funktion, um Beispieldaten für Services einzufügen, 
         conn.commit()
     conn.close()
 
+def init_inventory_data():
+    """Fügt realistische Demo-Assets für alle Abteilungen ein."""
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute("SELECT COUNT(*) FROM inventory")
+    if c.fetchone()[0] == 0:
+        sample_assets = [
+            # IT (Infrastruktur & Laptops)
+            ("HW-IT-001", "Lenovo ThinkPad X1 Carbon", "IT", "Lager", "-", "-", "SN-9921-X1", "01.2027"),
+            ("HW-IT-002", "Dell PowerEdge R740 Server", "IT", "In Benutzung", "Admin-Team", "25.03.2026", "SRV-DELL-01", "12.2028"),
+            
+            # GRAFIK (High-End & Spezial-Hardware)
+            ("HW-GR-001", "Mac Studio (M2 Ultra)", "Grafik", "Lager", "-", "-", "APPLE-M2-088", "06.2027"),
+            ("HW-GR-002", "Wacom Cintiq Pro 27", "Grafik", "Lager", "-", "-", "WAC-99001", "03.2026"),
+            ("HW-GR-003", "Eizo ColorEdge 4K Monitor", "Grafik", "In Benutzung", "Lisa Kreativ", "10.02.2026", "EZ-112233", "05.2027"),
+
+            # VERTRIEB (Mobil & Kommunikation)
+            ("HW-VT-001", "iPhone 15 Pro 256GB", "Vertrieb", "Lager", "-", "-", "IMEI-334455", "10.2026"),
+            ("HW-VT-002", "Microsoft Surface Laptop 5", "Vertrieb", "Lager", "-", "-", "MS-SURF-552", "08.2026"),
+            ("HW-VT-003", "Jabra Evolve2 65 Headset", "Vertrieb", "In Benutzung", "Markus Sales", "01.03.2026", "JB-8877", "None"),
+
+            # BUCHHALTUNG (Sicherheit & Dokumente)
+            ("HW-BH-001", "Fujitsu Dokumentenscanner fi-8170", "Buchhaltung", "Lager", "-", "-", "FUJ-SCN-01", "12.2026"),
+            ("HW-BH-002", "HP LaserJet Enterprise (verschlüsselt)", "Buchhaltung", "In Benutzung", "Büro-Zentral", "15.01.2026", "HP-PRNT-99", "01.2028"),
+
+            # LOGISTIK (Robuste Hardware)
+            ("HW-LG-001", "Zebra TC52 Touch Computer", "Logistik", "Lager", "-", "-", "ZEB-88120", "05.2026"),
+            ("HW-LG-002", "Zebra ZT411 Etikettendrucker", "Logistik", "In Benutzung", "Lager-Halle-1", "20.03.2026", "ZEB-PR-441", "09.2027"),
+            
+            # ALLGEMEIN
+            ("HW-GEN-001", "Logitech MX Master 3 Maus", "Alle", "Lager", "-", "-", "LOGI-992", "None")
+        ]
+        c.executemany("INSERT INTO inventory VALUES (?,?,?,?,?,?,?,?)", sample_assets)
+        conn.commit()
+    conn.close()
+
+# Nicht vergessen, die Funktion oben bei den Initialisierungen aufzurufen:
+# init_db()
+# init_sample_data()
+# init_inventory_data()  <-- Neu hinzufügen
+
 # --- 2. SECURITY (ADMIN LOCK) ---
 def check_password():
     """Gibt True zurück, wenn das Passwort korrekt eingegeben wurde."""
@@ -98,6 +139,7 @@ def check_password():
 # --- 3. APP INITIALISIERUNG ---
 init_db() #Datenbank initialisieren (Tabellen erstellen, falls nicht vorhanden)
 init_sample_data()   # Beispieldaten für Services
+init_inventory_data() # NEU: Hier muss der Aufruf hin, damit die Hardware-Assets geladen werden
 
 st.title("🛡️ The Core – IT Service Hub")
 st.caption("Verbindung von Business-Service-Katalog und technischer CMDB")
@@ -299,11 +341,22 @@ with tab_admin:
                     else:
                         st.warning("Bitte ID und Typ ausfüllen.")
 
-        # 5. Daten-Wartung
+        # 5. Daten-Wartung (Optimiert für Demo-Reset)
         with st.expander("⚠️ System-Wartung"):
-            if st.button("Inventar komplett löschen"):
+            st.write("Hier kannst du das System für eine neue Demo zurücksetzen.")
+            
+            if st.button("Gesamtes System zurücksetzen (Inventar & Tickets)"):
                 conn = get_connection()
+                # Alle Tabellen leeren
                 conn.execute("DELETE FROM inventory")
+                conn.execute("DELETE FROM requests")
+                conn.execute("DELETE FROM services")
                 conn.commit()
                 conn.close()
+                
+                # Funktionen sofort neu aufrufen, um Demo-Daten frisch zu laden
+                init_sample_data()
+                init_inventory_data()
+                
+                st.success("✅ System erfolgreich zurückgesetzt und Demo-Daten neu geladen!")
                 st.rerun()
